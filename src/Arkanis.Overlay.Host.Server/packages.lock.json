@@ -471,6 +471,16 @@
         "resolved": "1.2.0",
         "contentHash": "5Mr4SCGevBHpYI2MBkqVtbwtiW/Nr/gi9P323NhgAToJP06DgcHDlKqZ5qfrV0VoQSNHuSaAz6uGCcJqdwsQdA=="
       },
+      "Microsoft.AspNetCore.Http.Connections.Client": {
+        "type": "Transitive",
+        "resolved": "10.0.6",
+        "contentHash": "neN3h4JIzp6zqYuXRdhrSXRSdi6EHaHEgZqol5lcXKiWZEJ2KfQhwKyrm+tFe7iMx3+kGDq+qUB9aiU+1nAELA=="
+      },
+      "Microsoft.AspNetCore.SignalR.Client.Core": {
+        "type": "Transitive",
+        "resolved": "10.0.6",
+        "contentHash": "bXlXE6cs9P6Qja9ScuNeJrStBMJORDF009y83oo2DJX1z4DUUApZojgm/OkHs8IKm75PTfukK33yDzctDlEInw=="
+      },
       "Microsoft.Data.Sqlite.Core": {
         "type": "Transitive",
         "resolved": "10.0.6",
@@ -699,6 +709,14 @@
           "Duende.IdentityModel.OidcClient": "[7.1.0, )"
         }
       },
+      "arkanis.overlay.external.medrunner": {
+        "type": "Project",
+        "dependencies": {
+          "Arkanis.Overlay.Common": "[1.0.0, )",
+          "Microsoft.AspNetCore.SignalR.Client": "[10.0.6, )",
+          "Polly": "[8.6.6, )"
+        }
+      },
       "arkanis.overlay.external.uex": {
         "type": "Project",
         "dependencies": {
@@ -711,6 +729,7 @@
           "Arkanis.Overlay.Domain": "[1.0.0, )",
           "Arkanis.Overlay.External.Backend": "[1.0.0, )",
           "Arkanis.Overlay.External.CitizenId": "[1.0.0, )",
+          "Arkanis.Overlay.External.Medrunner": "[1.0.0, )",
           "Arkanis.Overlay.External.UEX": "[1.0.0, )",
           "Arkanis.Overlay.LocalLink": "[1.0.0, )",
           "JetBrains.Annotations": "[2025.2.4, )",
@@ -856,6 +875,16 @@
         "contentHash": "4Hri3fevgpDau0Z7vJEKJC0vlmN/ZT6B1/gG7yhKbUvEWXev+IElY1NIgn108RzEVUythJczyPtWwp7x1wuNqQ==",
         "dependencies": {
           "MathTrigonometric": "1.2.0"
+        }
+      },
+      "Microsoft.AspNetCore.SignalR.Client": {
+        "type": "CentralTransitive",
+        "requested": "[10.0.6, )",
+        "resolved": "10.0.6",
+        "contentHash": "2HrBpZhooHodyJNmpvzH6zQcSTCMgFcCrAEIjhTJ1ct5wKTAtyveas1Mb9CZT5XUshd0M5XF+XvCB0Z52fEENQ==",
+        "dependencies": {
+          "Microsoft.AspNetCore.Http.Connections.Client": "10.0.6",
+          "Microsoft.AspNetCore.SignalR.Client.Core": "10.0.6"
         }
       },
       "Microsoft.Data.Sqlite": {

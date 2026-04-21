@@ -110,6 +110,13 @@ public class OverlayModules(IOverlayControls overlayControls, IUserPreferencesMa
         },
         new UrlEntry
         {
+            Url = "/medrunner",
+            Name = "Rescue",
+            Description = "Request or manage Medrunner rescues.",
+            Icon = Outlined.LocalHospital,
+        },
+        new UrlEntry
+        {
             Url = "/org",
             Name = "Org",
             Description = "Manage your Organization.",

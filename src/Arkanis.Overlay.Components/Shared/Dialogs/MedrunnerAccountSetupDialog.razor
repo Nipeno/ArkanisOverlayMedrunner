@@ -1,0 +1,168 @@
+@using Arkanis.Overlay.Common.Extensions
+@using Arkanis.Overlay.Common.Models
+@using Arkanis.Overlay.Infrastructure.Services.External
+@using FluentResults
+@inject MedrunnerAccountContext MedrunnerAccountContext
+
+<MudDialog Gutters="false"
+           ContentStyle="background: var(--mud-palette-background);">
+    <TitleContent>
+        <MedRunnerLogo
+            Style="height: 32px"
+            ContentId="@ContentId"/>
+    </TitleContent>
+    <DialogContent>
+        <MudStepper @ref="_stepper">
+            <ChildContent>
+                <MudStep Title="Get your API token">
+                    <MudStack Class="py-4" AlignItems="@AlignItems.Center" Spacing="3">
+                        <MudText Align="@Align.Center">
+                            To connect your Medrunner account, you need a personal API token from
+                            <MudLink Href="https://medrunner.space" Target="_blank">medrunner.space</MudLink>.
+                        </MudText>
+                        <MudText Align="@Align.Center">
+                            Log in with Discord, navigate to your <b>Profile → API Tokens</b>,
+                            and create a new token.
+                        </MudText>
+                        <MudButton EndIcon="@Icons.Material.Filled.ChevronRight"
+                                   OnClick="@NextStepAsync">
+                            Continue
+                        </MudButton>
+                    </MudStack>
+                </MudStep>
+                <MudStep Title="Enter your token" HasError="@TokenHasError">
+                    <MudStack Class="py-4" AlignItems="@AlignItems.Center" Spacing="3">
+                        <MudText Align="@Align.Center">
+                            Paste your Medrunner API token below.
+                            It will be stored securely and used to authenticate with the Medrunner API.
+                        </MudText>
+                        <div style="width: 80%">
+                            <MudStack>
+                                <MudTextField
+                                    Label="API Token"
+                                    @bind-Value="_token"
+                                    @bind-Value:after="CheckTokenAsync"
+                                    Error="@TokenHasError"
+                                    ErrorText="@_tokenError?.Message"
+                                    InputType="@InputType.Password"
+                                    Disabled="@_isLoading"
+                                    FullWidth
+                                    Immediate
+                                    Required/>
+                                @if (_isLoading)
+                                {
+                                    <MudProgressLinear Indeterminate/>
+                                }
+                                else if (TokenHasError)
+                                {
+                                    <MudButton Variant="@Variant.Filled"
+                                               OnClick="@CheckTokenAsync"
+                                               StartIcon="@Icons.Material.Filled.Refresh">
+                                        Retry
+                                    </MudButton>
+                                }
+                            </MudStack>
+                        </div>
+                    </MudStack>
+                </MudStep>
+            </ChildContent>
+            <CompletedContent>
+                <MudAlert Severity="@Severity.Success">
+                    <b>Success!</b>
+                    Your Medrunner account has been connected to the Arkanis Overlay.
+                </MudAlert>
+            </CompletedContent>
+            <ActionContent>
+                @* Navigation managed within each step. *@
+            </ActionContent>
+        </MudStepper>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@Cancel">Close</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code
+{
+    private const string ContentId = "medrunner_connect_dialog";
+
+    private MudStepper? _stepper;
+    private string? _token;
+    private IError? _tokenError;
+    private bool _isLoading;
+
+    private bool TokenHasError => _tokenError is not null;
+
+    [CascadingParameter]
+    public required IMudDialogInstance MudDialog { get; set; }
+
+    private void Cancel() => MudDialog.Cancel();
+
+    private async Task NextStepAsync() => await _stepper!.NextStepAsync();
+
+    public static async Task<DialogResult> ShowAsync(IDialogService dialogService)
+    {
+        var options = new DialogOptions
+        {
+            FullWidth = true,
+            MaxWidth = MaxWidth.Medium,
+            CloseOnEscapeKey = true,
+            CloseButton = true,
+        };
+        var dialogRef = await dialogService.ShowAsync<MedrunnerAccountSetupDialog>(null, options);
+        return await dialogRef.Result ?? DialogResult.Cancel();
+    }
+
+    public static async Task<DialogResult> UnlinkAsync(IDialogService dialogService, MedrunnerAccountContext accountContext)
+    {
+        if (!accountContext.IsAuthenticated)
+            return DialogResult.Ok(true);
+
+        var options = new MessageBoxOptions
+        {
+            Title = $"Unlink {accountContext.Identity.Name} (Medrunner)",
+            Message = "This action cannot be undone. Are you sure?",
+            YesText = "Unlink",
+            CancelText = "Cancel",
+        };
+        if (await dialogService.ShowMessageBox(options) is not true)
+            return DialogResult.Cancel();
+
+        await accountContext.UnlinkAsync(CancellationToken.None);
+        return DialogResult.Ok(true);
+    }
+
+    private async Task CheckTokenAsync()
+    {
+        _tokenError = _token is null or { Length: 0 }
+            ? new Error("Please enter your Medrunner API token.")
+            : null;
+
+        if (_tokenError is not null || _token is null)
+            return;
+
+        _isLoading = true;
+        try
+        {
+            var credentials = new AccountApiTokenCredentials(ExternalService.MedRunner)
+            {
+                UserIdentifier = null,
+                SecretToken = _token,
+            };
+            var result = await MedrunnerAccountContext.ConfigureAsync(credentials, CancellationToken.None);
+            if (MedrunnerAccountContext.IsAuthenticated)
+                await _stepper!.NextStepAsync();
+
+            result.MapErrors(error => _tokenError ??= error);
+        }
+        catch (Exception exception)
+        {
+            _tokenError = exception.ToError();
+        }
+        finally
+        {
+            _isLoading = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+}

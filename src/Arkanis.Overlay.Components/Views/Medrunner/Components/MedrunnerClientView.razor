@@ -1,0 +1,369 @@
+@using Arkanis.Overlay.External.Medrunner.Abstractions
+@using Arkanis.Overlay.External.Medrunner.Models
+@using Arkanis.Overlay.Infrastructure.Services.External
+@using Arkanis.Overlay.Components.Views.Medrunner.Components
+@implements IDisposable
+@inject IMedrunnerOrgSettingsApi OrgSettingsApi
+@inject IMedrunnerEmergencyApi EmergencyApi
+@inject IMedrunnerSignalRService SignalR
+@inject IMedrunnerLocationCache LocationCache
+@inject MedrunnerAccountContext AccountContext
+
+@if (_orgSettings is not null)
+{
+    <MudAlert Severity="@OrgStatusSeverity(_orgSettings.Status)" Dense Class="mb-2">
+        Medrunner is @_orgSettings.Status.ToString()
+        @if (_orgSettings.MessageOfTheDay is { Message.Length: > 0 } motd)
+        {
+            <span> — @motd.Message</span>
+        }
+    </MudAlert>
+}
+
+@if (_activeEmergency is null)
+{
+    <MudPaper Class="pa-4">
+        <MudText Typo="@Typo.h6" Class="mb-4">Request Rescue</MudText>
+
+        @if (_orgSettings?.EmergenciesEnabled == false)
+        {
+            <MudAlert Severity="@Severity.Warning">
+                Emergency services are currently disabled by Medrunner.
+            </MudAlert>
+        }
+        else
+        {
+            <MudStack Spacing="3">
+                <MudSelect T="LocationDetail?"
+                           Label="System"
+                           @bind-Value="_selectedSystem"
+                           @bind-Value:after="OnSystemChanged"
+                           Disabled="@(_locations.Length == 0)">
+                    @foreach (var loc in _locations)
+                    {
+                        <MudSelectItem Value="@((LocationDetail?)loc)">@loc.Name</MudSelectItem>
+                    }
+                </MudSelect>
+
+                @if (_selectedSystem is { Children.Length: > 0 })
+                {
+                    <MudSelect T="LocationDetail?"
+                               Label="Location"
+                               @bind-Value="_selectedSubsystem"
+                               @bind-Value:after="OnSubsystemChanged">
+                        @foreach (var loc in _selectedSystem.Children)
+                        {
+                            <MudSelectItem Value="@((LocationDetail?)loc)">@loc.Name</MudSelectItem>
+                        }
+                    </MudSelect>
+                }
+
+                @if (_selectedSubsystem is { Children.Length: > 0 })
+                {
+                    <MudSelect T="LocationDetail?"
+                               Label="Specific Location (optional)"
+                               @bind-Value="_selectedTertiary">
+                        <MudSelectItem Value="@((LocationDetail?)null)">— None —</MudSelectItem>
+                        @foreach (var loc in _selectedSubsystem.Children)
+                        {
+                            <MudSelectItem Value="@((LocationDetail?)loc)">@loc.Name</MudSelectItem>
+                        }
+                    </MudSelect>
+                }
+
+                <MudSelect T="ThreatLevel" Label="Threat Level" @bind-Value="_threatLevel">
+                    @foreach (var level in Enum.GetValues<ThreatLevel>().Where(t => t != ThreatLevel.Unknown))
+                    {
+                        <MudSelectItem Value="@level">@level.ToString()</MudSelectItem>
+                    }
+                </MudSelect>
+
+                @if (_createError is not null)
+                {
+                    <MudAlert Severity="@Severity.Error">@_createError</MudAlert>
+                }
+
+                <MudButton Variant="@Variant.Filled"
+                           Color="@Color.Error"
+                           StartIcon="@Icons.Material.Filled.LocalHospital"
+                           Disabled="@(!CanSubmit || _isSubmitting)"
+                           OnClick="@RequestRescueAsync">
+                    @if (_isSubmitting)
+                    {
+                        <MudProgressCircular Size="@Size.Small" Indeterminate/>
+                    }
+                    else
+                    {
+                        <span>Request Rescue</span>
+                    }
+                </MudButton>
+            </MudStack>
+        }
+    </MudPaper>
+}
+else
+{
+    <MudPaper Class="pa-4">
+        <MudStack Spacing="3">
+            <MudStack Row AlignItems="@AlignItems.Center">
+                <MudText Typo="@Typo.h6">Active Emergency</MudText>
+                <MudSpacer/>
+                <MudChip T="string" Color="@EmergencyStatusColor(_activeEmergency.Status)">
+                    @_activeEmergency.Status.ToString()
+                </MudChip>
+            </MudStack>
+
+            <MudText Typo="@Typo.body2">
+                📍 @_activeEmergency.System — @_activeEmergency.Subsystem
+                @if (_activeEmergency.TertiaryLocation is not null)
+                {
+                    <span> — @_activeEmergency.TertiaryLocation</span>
+                }
+            </MudText>
+
+            <MudText Typo="@Typo.body2">⚠️ Threat: @_activeEmergency.ThreatLevel.ToString()</MudText>
+
+            @if (_activeEmergency.RespondingTeam.AllMembers.Length > 0)
+            {
+                <MudText Typo="@Typo.body2">
+                    Responding: @string.Join(", ", _activeEmergency.RespondingTeam.AllMembers.Select(m => m.RsiHandle ?? m.DiscordId))
+                </MudText>
+            }
+
+            <MudStack Row Spacing="1" Wrap="@Wrap.Wrap">
+                @foreach (var (status, label) in EmergencySteps)
+                {
+                    <MudChip T="string"
+                             Color="@(_activeEmergency.Status >= status ? Color.Success : Color.Default)"
+                             Size="@Size.Small">
+                        @label
+                    </MudChip>
+                }
+            </MudStack>
+
+            @if (IsComplete(_activeEmergency))
+            {
+                @if (_activeEmergency.Rating == ResponseRating.None)
+                {
+                    <MudDivider/>
+                    <MudText Typo="@Typo.subtitle2">How was the service?</MudText>
+                    <MudStack Row>
+                        <MudButton Color="@Color.Success"
+                                   Variant="@Variant.Outlined"
+                                   StartIcon="@Icons.Material.Filled.ThumbUp"
+                                   OnClick="@(() => RateAsync(ResponseRating.Good))">
+                            Good
+                        </MudButton>
+                        <MudButton Color="@Color.Error"
+                                   Variant="@Variant.Outlined"
+                                   StartIcon="@Icons.Material.Filled.ThumbDown"
+                                   OnClick="@(() => RateAsync(ResponseRating.Bad))">
+                            Bad
+                        </MudButton>
+                    </MudStack>
+                }
+                <MudButton Variant="@Variant.Outlined"
+                           OnClick="@DismissAsync">
+                    Dismiss
+                </MudButton>
+            }
+            else
+            {
+                <MudDivider/>
+                <MudStack Row AlignItems="@AlignItems.Center">
+                    <MudSelect T="CancellationReason"
+                               Label="Cancellation reason"
+                               @bind-Value="_cancelReason"
+                               Style="min-width: 200px;">
+                        @foreach (var reason in Enum.GetValues<CancellationReason>()
+                                      .Where(r => r is not CancellationReason.None and not CancellationReason.ServerError))
+                        {
+                            <MudSelectItem Value="@reason">@reason.ToString()</MudSelectItem>
+                        }
+                    </MudSelect>
+                    <MudButton Color="@Color.Warning"
+                               Variant="@Variant.Outlined"
+                               OnClick="@CancelEmergencyAsync">
+                        Cancel Emergency
+                    </MudButton>
+                </MudStack>
+            }
+        </MudStack>
+    </MudPaper>
+
+    <MudPaper Class="pa-4 mt-4">
+        <MudText Typo="@Typo.subtitle1" Class="mb-2">Chat</MudText>
+        <MedrunnerChatPanel EmergencyId="@_activeEmergency.Id"/>
+    </MudPaper>
+}
+
+@code
+{
+    private static readonly (MissionStatus Status, string Label)[] EmergencySteps =
+    [
+        (MissionStatus.Created, "Created"),
+        (MissionStatus.Received, "Received"),
+        (MissionStatus.InProgress, "In Progress"),
+        (MissionStatus.Success, "Success"),
+    ];
+
+    private PublicOrgSettings? _orgSettings;
+    private Emergency? _activeEmergency;
+    private LocationDetail[] _locations = [];
+
+    private LocationDetail? _selectedSystem;
+    private LocationDetail? _selectedSubsystem;
+    private LocationDetail? _selectedTertiary;
+    private ThreatLevel _threatLevel = ThreatLevel.Low;
+    private CancellationReason _cancelReason = CancellationReason.Other;
+    private string? _createError;
+    private bool _isSubmitting;
+
+    private bool CanSubmit => _selectedSystem is not null && _selectedSubsystem is not null;
+
+    protected override async Task OnInitializedAsync()
+    {
+        SignalR.EmergencyUpdated += OnEmergencyUpdated;
+        SignalR.OrgSettingsUpdated += OnOrgSettingsUpdated;
+
+        await Task.WhenAll(LoadOrgSettingsAsync(), LoadLocationsAsync(), LoadActiveEmergencyAsync());
+    }
+
+    public void Dispose()
+    {
+        SignalR.EmergencyUpdated -= OnEmergencyUpdated;
+        SignalR.OrgSettingsUpdated -= OnOrgSettingsUpdated;
+    }
+
+    private async Task LoadOrgSettingsAsync()
+    {
+        try
+        {
+            var response = await OrgSettingsApi.GetPublicSettingsAsync();
+            if (response.Success && response.Data is not null)
+                _orgSettings = response.Data;
+        }
+        catch { }
+    }
+
+    private async Task LoadLocationsAsync()
+    {
+        try { _locations = await LocationCache.GetLocationsAsync(); }
+        catch { }
+    }
+
+    private async Task LoadActiveEmergencyAsync()
+    {
+        var activeId = AccountContext.Person?.ActiveEmergency;
+        if (activeId is null) return;
+        try
+        {
+            var response = await EmergencyApi.GetEmergencyAsync(activeId);
+            if (response.Success)
+                _activeEmergency = response.Data;
+        }
+        catch { }
+    }
+
+    private void OnEmergencyUpdated(object? _, Emergency emergency)
+    {
+        if (_activeEmergency?.Id != emergency.Id && AccountContext.Person?.ActiveEmergency != emergency.Id)
+            return;
+        _activeEmergency = emergency;
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void OnOrgSettingsUpdated(object? _, PublicOrgSettings settings)
+    {
+        _orgSettings = settings;
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void OnSystemChanged()
+    {
+        _selectedSubsystem = null;
+        _selectedTertiary = null;
+    }
+
+    private void OnSubsystemChanged() => _selectedTertiary = null;
+
+    private async Task RequestRescueAsync()
+    {
+        if (_selectedSystem is null || _selectedSubsystem is null) return;
+
+        _isSubmitting = true;
+        _createError = null;
+        try
+        {
+            var request = new CreateEmergencyRequest
+            {
+                Location = new EmergencyLocation
+                {
+                    System = _selectedSystem.Name,
+                    Subsystem = _selectedSubsystem.Name,
+                    TertiaryLocation = _selectedTertiary?.Name,
+                },
+                ThreatLevel = _threatLevel,
+            };
+            var response = await EmergencyApi.CreateEmergencyAsync(request);
+            if (response.Success)
+                _activeEmergency = response.Data;
+            else
+                _createError = response.ErrorMessage ?? "Failed to create emergency.";
+        }
+        catch (Exception ex)
+        {
+            _createError = ex.Message;
+        }
+        finally
+        {
+            _isSubmitting = false;
+        }
+    }
+
+    private async Task CancelEmergencyAsync()
+    {
+        if (_activeEmergency is null) return;
+        try { await EmergencyApi.CancelEmergencyAsync(_activeEmergency.Id, _cancelReason); }
+        catch { }
+    }
+
+    private async Task RateAsync(ResponseRating rating)
+    {
+        if (_activeEmergency is null) return;
+        try
+        {
+            await EmergencyApi.RateServicesAsync(_activeEmergency.Id, rating);
+            _activeEmergency = _activeEmergency with { Rating = rating };
+            await InvokeAsync(StateHasChanged);
+        }
+        catch { }
+    }
+
+    private async Task DismissAsync()
+    {
+        _activeEmergency = null;
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private static Severity OrgStatusSeverity(ServiceStatus status) => status switch
+    {
+        ServiceStatus.Healthy => Severity.Success,
+        ServiceStatus.SlightlyDegraded => Severity.Warning,
+        ServiceStatus.HeavilyDegraded or ServiceStatus.Offline => Severity.Error,
+        _ => Severity.Info,
+    };
+
+    private static Color EmergencyStatusColor(MissionStatus status) => status switch
+    {
+        MissionStatus.Created or MissionStatus.Received => Color.Warning,
+        MissionStatus.InProgress => Color.Info,
+        MissionStatus.Success => Color.Success,
+        MissionStatus.Failed or MissionStatus.NoContact or MissionStatus.ServerError => Color.Error,
+        _ => Color.Default,
+    };
+
+    private static bool IsComplete(Emergency e) => e.Status is
+        MissionStatus.Success or MissionStatus.Failed or MissionStatus.NoContact
+        or MissionStatus.Canceled or MissionStatus.Refused or MissionStatus.Aborted;
+}

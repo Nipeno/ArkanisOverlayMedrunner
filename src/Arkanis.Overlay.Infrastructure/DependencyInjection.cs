@@ -12,6 +12,7 @@ using Domain.Abstractions.Services;
 using Domain.Services;
 using External.Backend.Options;
 using External.CitizenId;
+using External.Medrunner;
 using External.UEX;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -26,6 +27,7 @@ using Services.External;
 using Services.Hosted;
 using Services.Hydration;
 using Services.PriceProviders;
+using MedrunnerAccountContext = Services.External.MedrunnerAccountContext;
 using UexAccountContext = Services.External.UexAccountContext;
 
 public static class DependencyInjection
@@ -76,6 +78,11 @@ public static class DependencyInjection
         // TODO: Schedule credentials refresh job for Citizen ID
 
         services.AddSingleton<ExternalAuthenticatorProvider>();
+        services
+            .AddMedrunnerAccountAuthentication()
+            .AddMedrunnerApiClients()
+            .AddMedrunnerSignalR();
+
         services
             .AddUexAccountAuthentication()
             .AddSingleton<IOptionsChangeTokenSource<UexApiOptions>, UserPreferencesBasedOptionsChangeTokenSource<UexApiOptions>>()
@@ -128,6 +135,13 @@ public static class DependencyInjection
             .AddSingleton<CitizenIdAccountContext>()
             .Alias<ISelfInitializable, CitizenIdAccountContext>()
             .Alias<IExternalAccountContext, CitizenIdAccountContext>();
+
+    public static IServiceCollection AddMedrunnerAccountAuthentication(this IServiceCollection services)
+        => services
+            .AddMedrunnerAuthenticatorServices()
+            .AddSingleton<MedrunnerAccountContext>()
+            .Alias<ISelfInitializable, MedrunnerAccountContext>()
+            .Alias<IExternalAccountContext, MedrunnerAccountContext>();
 
     public static IServiceCollection AddUexAccountAuthentication(this IServiceCollection services)
         => services

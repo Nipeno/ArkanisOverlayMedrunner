@@ -1,0 +1,179 @@
+@using Arkanis.Overlay.External.Medrunner.Abstractions
+@using Arkanis.Overlay.External.Medrunner.Models
+@using Arkanis.Overlay.Components.Views.Medrunner.Components
+@implements IDisposable
+@inject IMedrunnerSignalRService SignalR
+@inject IMedrunnerOrgSettingsApi OrgSettingsApi
+
+@if (_orgSettings is not null)
+{
+    <MudStack Row AlignItems="@AlignItems.Center" Class="mb-2">
+        <MudText Typo="@Typo.subtitle2">Service status:</MudText>
+        <MudChip T="string" Color="@OrgStatusColor(_orgSettings.Status)" Size="@Size.Small">
+            @_orgSettings.Status.ToString()
+        </MudChip>
+        @if (_orgSettings.MessageOfTheDay is { Message.Length: > 0 } motd)
+        {
+            <MudText Typo="@Typo.caption" Class="text-secondary">@motd.Message</MudText>
+        }
+    </MudStack>
+}
+
+<MudGrid>
+    <MudItem xs="4">
+        <MudPaper Class="pa-2" Style="height: 520px; display: flex; flex-direction: column;">
+            <MudStack Row AlignItems="@AlignItems.Center" Class="px-2 py-1">
+                <MudText Typo="@Typo.subtitle1">Emergency Queue</MudText>
+                @if (_emergencies.Count > 0)
+                {
+                    <MudChip T="string" Color="@Color.Warning" Size="@Size.Small">
+                        @_emergencies.Count
+                    </MudChip>
+                }
+            </MudStack>
+            <MudDivider/>
+            <div style="overflow-y: auto; flex: 1;">
+                @if (_emergencies.Count == 0)
+                {
+                    <MudText Class="pa-4 text-secondary" Typo="@Typo.body2">
+                        Waiting for emergencies…
+                    </MudText>
+                }
+                else
+                {
+                    <MudList T="Emergency" Dense @bind-SelectedValue="_selected">
+                        @foreach (var e in _emergencies.OrderByDescending(e => e.CreationTimestamp))
+                        {
+                            <MudListItem Value="@e">
+                                <MudStack Spacing="0">
+                                    <MudStack Row AlignItems="@AlignItems.Center">
+                                        <MudText Typo="@Typo.body2">@e.ClientRsiHandle</MudText>
+                                        <MudSpacer/>
+                                        <MudChip T="string"
+                                                 Color="@EmergencyStatusColor(e.Status)"
+                                                 Size="@Size.Small">
+                                            @e.Status.ToString()
+                                        </MudChip>
+                                    </MudStack>
+                                    <MudText Typo="@Typo.caption" Class="text-secondary">
+                                        @e.System — @e.Subsystem
+                                    </MudText>
+                                </MudStack>
+                            </MudListItem>
+                        }
+                    </MudList>
+                }
+            </div>
+        </MudPaper>
+    </MudItem>
+
+    <MudItem xs="8">
+        @if (_selected is not null)
+        {
+            <MudPaper Class="pa-4 mb-4">
+                <MudStack Spacing="2">
+                    <MudStack Row AlignItems="@AlignItems.Center">
+                        <MudText Typo="@Typo.h6">@_selected.ClientRsiHandle</MudText>
+                        <MudSpacer/>
+                        <MudChip T="string" Color="@EmergencyStatusColor(_selected.Status)">
+                            @_selected.Status.ToString()
+                        </MudChip>
+                    </MudStack>
+                    <MudText Typo="@Typo.body2">
+                        📍 @_selected.System — @_selected.Subsystem
+                        @if (_selected.TertiaryLocation is not null)
+                        {
+                            <span> — @_selected.TertiaryLocation</span>
+                        }
+                    </MudText>
+                    <MudText Typo="@Typo.body2">⚠️ Threat: @_selected.ThreatLevel.ToString()</MudText>
+                    @if (_selected.RespondingTeam.AllMembers.Length > 0)
+                    {
+                        <MudText Typo="@Typo.body2">
+                            Team: @string.Join(", ", _selected.RespondingTeam.AllMembers.Select(m => m.RsiHandle ?? m.DiscordId))
+                        </MudText>
+                    }
+                </MudStack>
+            </MudPaper>
+
+            <MudPaper Class="pa-4">
+                <MudText Typo="@Typo.subtitle1" Class="mb-2">Chat</MudText>
+                <MedrunnerChatPanel EmergencyId="@_selected.Id"/>
+            </MudPaper>
+        }
+        else
+        {
+            <MudPaper Class="pa-4 d-flex align-center justify-center" Style="height: 200px;">
+                <MudText Class="text-secondary">Select an emergency to view details.</MudText>
+            </MudPaper>
+        }
+    </MudItem>
+</MudGrid>
+
+@code
+{
+    private readonly List<Emergency> _emergencies = [];
+    private Emergency? _selected;
+    private PublicOrgSettings? _orgSettings;
+
+    protected override async Task OnInitializedAsync()
+    {
+        SignalR.EmergencyCreated += OnEmergencyCreated;
+        SignalR.EmergencyUpdated += OnEmergencyUpdated;
+        SignalR.OrgSettingsUpdated += OnOrgSettingsUpdated;
+
+        try
+        {
+            var response = await OrgSettingsApi.GetPublicSettingsAsync();
+            if (response.Success && response.Data is not null)
+                _orgSettings = response.Data;
+        }
+        catch { }
+    }
+
+    public void Dispose()
+    {
+        SignalR.EmergencyCreated -= OnEmergencyCreated;
+        SignalR.EmergencyUpdated -= OnEmergencyUpdated;
+        SignalR.OrgSettingsUpdated -= OnOrgSettingsUpdated;
+    }
+
+    private void OnEmergencyCreated(object? _, Emergency e)
+    {
+        _emergencies.RemoveAll(x => x.Id == e.Id);
+        _emergencies.Add(e);
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void OnEmergencyUpdated(object? _, Emergency e)
+    {
+        var i = _emergencies.FindIndex(x => x.Id == e.Id);
+        if (i >= 0) _emergencies[i] = e;
+        else _emergencies.Add(e);
+        if (_selected?.Id == e.Id) _selected = e;
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void OnOrgSettingsUpdated(object? _, PublicOrgSettings settings)
+    {
+        _orgSettings = settings;
+        InvokeAsync(StateHasChanged);
+    }
+
+    private static Color OrgStatusColor(ServiceStatus status) => status switch
+    {
+        ServiceStatus.Healthy => Color.Success,
+        ServiceStatus.SlightlyDegraded => Color.Warning,
+        ServiceStatus.HeavilyDegraded or ServiceStatus.Offline => Color.Error,
+        _ => Color.Default,
+    };
+
+    private static Color EmergencyStatusColor(MissionStatus status) => status switch
+    {
+        MissionStatus.Created or MissionStatus.Received => Color.Warning,
+        MissionStatus.InProgress => Color.Info,
+        MissionStatus.Success => Color.Success,
+        MissionStatus.Failed or MissionStatus.NoContact or MissionStatus.ServerError => Color.Error,
+        _ => Color.Default,
+    };
+}

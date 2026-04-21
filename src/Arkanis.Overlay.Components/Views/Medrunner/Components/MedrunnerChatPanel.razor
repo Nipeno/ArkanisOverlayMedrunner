@@ -1,0 +1,119 @@
+@using Arkanis.Overlay.External.Medrunner.Abstractions
+@using Arkanis.Overlay.External.Medrunner.Models
+@implements IDisposable
+@inject IMedrunnerChatApi ChatApi
+@inject IMedrunnerSignalRService SignalR
+
+<MudStack>
+    <div style="overflow-y: auto; max-height: 280px;">
+        @if (_messages.Count == 0)
+        {
+            <MudText Class="text-secondary pa-2" Typo="@Typo.body2">No messages yet.</MudText>
+        }
+        else
+        {
+            <MudList T="ChatMessage" Dense Class="pa-0">
+                @foreach (var message in _messages.Where(m => !m.Deleted))
+                {
+                    <MudListItem Class="px-2 py-1">
+                        <MudStack Spacing="0">
+                            <MudText Typo="@Typo.caption" Class="text-secondary">
+                                @DateTimeOffset.FromUnixTimeMilliseconds(message.MessageSentTimestamp).LocalDateTime.ToString("HH:mm")
+                                @if (message.Edited)
+                                {
+                                    <span> (edited)</span>
+                                }
+                            </MudText>
+                            <MudText Typo="@Typo.body2">@message.Contents</MudText>
+                        </MudStack>
+                    </MudListItem>
+                }
+            </MudList>
+        }
+    </div>
+    <MudStack Row AlignItems="@AlignItems.Center" Spacing="1">
+        <MudTextField @bind-Value="_draft"
+                      Placeholder="Type a message…"
+                      Immediate
+                      Variant="@Variant.Outlined"
+                      Margin="@Margin.Dense"
+                      OnKeyUp="@OnKeyUpAsync"
+                      FullWidth/>
+        <MudIconButton Icon="@Icons.Material.Filled.Send"
+                       Color="@Color.Primary"
+                       Size="@Size.Small"
+                       Disabled="@string.IsNullOrWhiteSpace(_draft)"
+                       OnClick="@SendMessageAsync"/>
+    </MudStack>
+</MudStack>
+
+@code
+{
+    [Parameter, EditorRequired]
+    public required string EmergencyId { get; set; }
+
+    private readonly List<ChatMessage> _messages = [];
+    private string? _draft;
+
+    protected override void OnInitialized()
+    {
+        SignalR.ChatMessageCreated += OnMessageCreated;
+        SignalR.ChatMessageUpdated += OnMessageUpdated;
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _messages.Clear();
+        await LoadHistoryAsync();
+    }
+
+    public void Dispose()
+    {
+        SignalR.ChatMessageCreated -= OnMessageCreated;
+        SignalR.ChatMessageUpdated -= OnMessageUpdated;
+    }
+
+    private async Task LoadHistoryAsync()
+    {
+        try
+        {
+            var response = await ChatApi.GetMessageHistoryAsync(EmergencyId, 50);
+            if (response.Success && response.Data is not null)
+            {
+                _messages.AddRange(response.Data.Data);
+                await InvokeAsync(StateHasChanged);
+            }
+        }
+        catch { }
+    }
+
+    private void OnMessageCreated(object? _, ChatMessage msg)
+    {
+        if (msg.EmergencyId != EmergencyId) return;
+        _messages.Add(msg);
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void OnMessageUpdated(object? _, ChatMessage msg)
+    {
+        if (msg.EmergencyId != EmergencyId) return;
+        var i = _messages.FindIndex(m => m.Id == msg.Id);
+        if (i >= 0) _messages[i] = msg;
+        InvokeAsync(StateHasChanged);
+    }
+
+    private async Task SendMessageAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_draft)) return;
+        var text = _draft;
+        _draft = null;
+        try { await ChatApi.SendMessageAsync(EmergencyId, text); }
+        catch { }
+    }
+
+    private async Task OnKeyUpAsync(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && !e.ShiftKey)
+            await SendMessageAsync();
+    }
+}

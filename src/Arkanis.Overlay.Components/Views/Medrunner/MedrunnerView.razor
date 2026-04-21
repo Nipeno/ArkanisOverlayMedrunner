@@ -1,0 +1,80 @@
+@using Arkanis.Overlay.Infrastructure.Services.External
+@using Arkanis.Overlay.Components.Views.Medrunner.Components
+@implements IDisposable
+@inject MedrunnerAccountContext AccountContext
+@inject IUserPreferencesManager UserPreferencesManager
+
+<SectionContent SectionId="@RenderSections.OverlayControls.BottomRight"/>
+
+@if (!AccountContext.IsAuthenticated)
+{
+    <MudMainContent>
+        <MudContainer MaxWidth="@MaxWidth.Small" Class="py-8">
+            <MudPaper Class="pa-8">
+                <MudStack AlignItems="@AlignItems.Center" Spacing="4">
+                    <MedRunnerLogo
+                        Style="height: 60px;"
+                        OrientationVariant="@MedRunnerLogo.Orientation.Horizontal"
+                        WithoutLink/>
+                    <MudText Typo="@Typo.h6" Align="@Align.Center">
+                        Connect your Medrunner account to request or manage rescues.
+                    </MudText>
+                    <MudButton Variant="@Variant.Filled"
+                               Color="@Color.Primary"
+                               Href="/settings">
+                        Go to Settings to connect
+                    </MudButton>
+                </MudStack>
+            </MudPaper>
+        </MudContainer>
+    </MudMainContent>
+}
+else
+{
+    <MudMainContent Class="pb-8">
+        <MudContainer>
+            <MudStack>
+                @if (AccountContext.IsStaff && AccountContext.IsClient)
+                {
+                    <MudTabs @bind-ActivePanelIndex="_activeTabIndex" Rounded>
+                        <MudTabPanel Text="Client">
+                            <MedrunnerClientView/>
+                        </MudTabPanel>
+                        <MudTabPanel Text="Staff">
+                            <MedrunnerStaffView/>
+                        </MudTabPanel>
+                    </MudTabs>
+                }
+                else if (AccountContext.IsClient)
+                {
+                    <MedrunnerClientView/>
+                }
+                else if (AccountContext.IsStaff)
+                {
+                    <MedrunnerStaffView/>
+                }
+            </MudStack>
+        </MudContainer>
+    </MudMainContent>
+}
+
+@code
+{
+    private int _activeTabIndex;
+
+    protected override void OnInitialized()
+    {
+        UserPreferencesManager.ApplyPreferences += OnPreferencesApplied;
+    }
+
+    public void Dispose()
+    {
+        UserPreferencesManager.ApplyPreferences -= OnPreferencesApplied;
+    }
+
+    private async void OnPreferencesApplied(object? _, UserPreferences __)
+    {
+        try { await InvokeAsync(StateHasChanged); }
+        catch { }
+    }
+}
