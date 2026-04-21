@@ -32,9 +32,11 @@ internal sealed class MedrunnerChatApiClient(
     public Task<ApiResponse<ChatMessage>> SendMessageAsync(string emergencyId, string contents, CancellationToken ct = default)
         => PostAsync<ChatMessage>(string.Empty, new { emergencyId, contents }, ct);
 
-    public Task<ApiResponse<ChatMessage>> UpdateMessageAsync(string id, string contents, CancellationToken ct = default)
-        => PatchAsync($"/{id}", new { contents }, ct)
-            .ContinueWith(_ => new ApiResponse<ChatMessage> { Success = true }, ct);
+    public async Task<ApiResponse<ChatMessage>> UpdateMessageAsync(string id, string contents, CancellationToken ct = default)
+    {
+        await PatchAsync($"/{id}", new { contents }, ct);
+        return new ApiResponse<ChatMessage> { Success = true };
+    }
 
     public async Task DeleteMessageAsync(string id, CancellationToken ct = default)
         => await DeleteAsync($"/{id}", ct);
